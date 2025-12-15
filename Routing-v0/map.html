@@ -19,11 +19,20 @@
     <style>
         #map {
             height: 700px;
+            width: 95%;
         }
     </style>
 </head>
 
 <body>
+    <h1 style="margin-bottom: 15px;" >Enter Location Manually or Click on the Map</h1>
+    <input
+      type="text"
+      id="searchBox"
+      placeholder="Enter destination (e.g. Mumbai)"
+      style="width:300px;padding:8px;margin-bottom: 15px;"
+    />
+    <button onclick="searchLocation()">Go</button>
     <div id="map"></div>
 </body>
 

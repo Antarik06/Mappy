@@ -101,3 +101,41 @@
         console.log("click e",e)
         drawRoute(currentLatLng, e.latlng);
     });
+
+    async function searchLocation() {
+    const place = document.getElementById("searchBox").value;
+
+    if (!place) {
+        alert("Please enter a location");
+        return;
+    }
+
+    if (!currentLatLng) {
+        alert("Waiting for your location...");
+        return;
+    }
+
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${place}`;
+
+    const res = await fetch(url);
+    //console.log(res);
+    const data = await res.json();
+    //console.log(data);
+    if (!data.length) {
+        alert("Location not found");
+        return;
+    }
+    // data[0] has a lot of informttion 
+    // I previously forgot to do parseFloat which is wrong
+    // bcz the data comes in string format 
+    const destination = {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon)
+    };
+
+    // fit the map properly to searched place
+    map.setView(destination, 13);
+
+    // Draw the route :)
+    drawRoute(currentLatLng, destination);
+}
