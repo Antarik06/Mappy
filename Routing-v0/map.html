@@ -1,44 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Leaflet + GraphHopper Routing</title>
-    <!--Eta Leaflet er CSS-->
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      crossorigin=""
-    />
-    <!--Eta Leaflet er JS-->
-    <script
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      crossorigin=""
-    ></script>
 
-    <style>
-        #map {
-            height: 700px;
-            width: 95%;
-        }
-    </style>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mappy — Smart Route Planner</title>
+  <meta name="description"
+    content="Mappy: Open-source smart route planner with real-time navigation, multiple transport modes, and turn-by-turn directions.">
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <!-- App CSS -->
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <!-- Polyline decoder -->
+  <script src="https://unpkg.com/@mapbox/polyline"></script>
 </head>
 
 <body>
-    <h1 style="margin-bottom: 15px;" >Enter Location Manually or Click on the Map</h1>
-    <input
-      type="text"
-      id="searchBox"
-      placeholder="Enter destination (e.g. Mumbai)"
-      style="width:300px;padding:8px;margin-bottom: 15px;"
-    />
-    <button onclick="searchLocation()">Go</button>
-    <div id="map"></div>
+
+  <!-- ====== MAP ====== -->
+  <div id="map"></div>
+
+  <!-- ====== SEARCH PANEL (top-left) ====== -->
+  <div class="search-panel glass" id="searchPanel">
+    <div class="search-bar">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+      <input type="text" id="searchBox" placeholder="Search a destination…" autocomplete="off" />
+      <div class="spinner" id="searchSpinner"></div>
+      <button class="btn-go" id="goBtn" onclick="searchLocation()">Go</button>
+    </div>
+    <ul class="autocomplete-list" id="autocompleteList"></ul>
+  </div>
+
+  <!-- ====== TRANSPORT MODE SELECTOR (top-center) ====== -->
+  <div class="mode-selector glass" id="modeSelector">
+    <button class="mode-btn active" data-mode="car" onclick="setMode('car', this)">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path
+          d="M5 17h14M5 17a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1l2-3h8l2 3h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2M5 17v2m14-2v2" />
+        <circle cx="7.5" cy="14.5" r="1.5" />
+        <circle cx="16.5" cy="14.5" r="1.5" />
+      </svg>
+      <span class="mode-label">Car</span>
+    </button>
+    <button class="mode-btn bike" data-mode="bike" onclick="setMode('bike', this)">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="5.5" cy="17.5" r="3.5" />
+        <circle cx="18.5" cy="17.5" r="3.5" />
+        <path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-3 11.5V14l-3-3 4-3 2 3h2" />
+      </svg>
+      <span class="mode-label">Bike</span>
+    </button>
+    <button class="mode-btn walk" data-mode="foot" onclick="setMode('foot', this)">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="5" r="1.5" />
+        <path d="M13.5 8.5L15 12l-3 3-1.5 5M10.5 8.5L9 12l3 3 1 5M12 8.5V12" />
+      </svg>
+      <span class="mode-label">Walk</span>
+    </button>
+  </div>
+
+  <!-- ====== TOP-RIGHT BUTTONS ====== -->
+  <div class="top-right-controls">
+    <!-- Dark mode toggle -->
+    <button class="icon-btn glass" id="darkToggle" onclick="toggleDarkMode()" title="Toggle dark mode">
+      <svg id="iconSun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5" />
+        <line x1="12" y1="1" x2="12" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="23" />
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+        <line x1="1" y1="12" x2="3" y2="12" />
+        <line x1="21" y1="12" x2="23" y2="12" />
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+      </svg>
+      <svg id="iconMoon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    </button>
+    <!-- Locate me -->
+    <button class="icon-btn glass" id="locateBtn" onclick="locateMe()" title="Go to my location">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+      </svg>
+    </button>
+    <!-- Clear route -->
+    <button class="icon-btn glass" id="clearBtn" onclick="clearRoute()" title="Clear route">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- ====== ROUTE INFO PANEL (bottom-left) ====== -->
+  <div class="route-panel glass" id="routePanel">
+    <div class="route-header">
+      <div class="route-stats">
+        <div class="route-stat">
+          <span class="label">Distance</span>
+          <span class="value" id="routeDistance">—</span>
+        </div>
+        <div class="route-stat">
+          <span class="label">Duration</span>
+          <span class="value duration" id="routeDuration">—</span>
+        </div>
+      </div>
+      <button class="route-close-btn" onclick="clearRoute()" title="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="3" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+    <div class="route-instructions" id="routeInstructions">
+      <!-- instructions populate here -->
+    </div>
+  </div>
+
+  <script src="map.js"></script>
 </body>
 
-<!--Eta Polyline er JS-->
-<script src="https://unpkg.com/@mapbox/polyline"></script>
-
-<script src="map.js">
-</script>
 </html>
