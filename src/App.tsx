@@ -1,8 +1,56 @@
 import React, { useEffect, useRef, useState, FormEvent } from 'react';
+import CountryBuilder from './CountryBuilder';
 
-const GH_API_KEY = '57d9d0f6-832c-4037-9721-35b7bf7bc81c';
-const TILE_LIGHT = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const GH_API_KEY = import.meta.env.VITE_GH_API_KEY;
+
+// ── Tile layer configurations ────────────────────────────────
+type MapStyle = 'light' | 'dark' | 'satellite' | 'nightlights';
+
+const TILE_CONFIGS: Record<MapStyle, { url: string; attr: string; maxZoom: number }> = {
+  light: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attr: '&copy; OpenStreetMap',
+    maxZoom: 19,
+  },
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attr: '&copy; OpenStreetMap &copy; CARTO',
+    maxZoom: 19,
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attr: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+    maxZoom: 19,
+  },
+  nightlights: {
+    url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default//GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg',
+    attr: 'Imagery: NASA GIBS, VIIRS',
+    maxZoom: 8,
+  },
+};
+
+// English labels overlay (works on satellite / nightlights)
+const LABELS_URL = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png';
+const LABELS_DARK_URL = 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png';
+
+// Road highlight overlay (Stamen Toner Lines via stadiamaps — free tier)
+const ROAD_OVERLAY_URL = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png';
+
+const MAP_STYLE_ICONS: Record<MapStyle, string> = {
+  light: '☀️',
+  dark: '🌙',
+  satellite: '🛰️',
+  nightlights: '🌃',
+};
+const MAP_STYLE_LABELS: Record<MapStyle, string> = {
+  light: 'Standard',
+  dark: 'Dark Mode',
+  satellite: 'Satellite',
+  nightlights: 'Night Lights',
+};
+const MAP_STYLE_ORDER: MapStyle[] = ['light', 'dark', 'satellite', 'nightlights'];
+
+const ROAD_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#ffffff','#000000'];
 
 const ROUTE_COLORS: Record<string, string> = { car: '#3b82f6', bike: '#22c55e', foot: '#f97316' };
 const GH_VEHICLES: Record<string, string> = { car: 'car', bike: 'bike', foot: 'foot' };
@@ -19,11 +67,22 @@ export default function App() {
   const destMarkerRef = useRef<any>(null);
   const routeLineRef = useRef<any>(null);
   const tileLayerRef = useRef<any>(null);
+  const labelsLayerRef = useRef<any>(null);
+  const roadOverlayRef = useRef<any>(null);
 
   const [currentLatLng, setCurrentLatLng] = useState<any>(null);
   const [currentMode, setCurrentMode] = useState<'car' | 'bike' | 'foot'>('car');
-  const [isDark, setIsDark] = useState<boolean>(() => localStorage.getItem('mappy-dark') === 'true');
+  const [mapStyle, setMapStyle] = useState<MapStyle>(() => {
+    const saved = localStorage.getItem('mappy-style');
+    return (saved && saved in TILE_CONFIGS ? saved : 'light') as MapStyle;
+  });
+  const isDark = mapStyle === 'dark' || mapStyle === 'nightlights';
   const [isRouting, setIsRouting] = useState(false);
+  const [isCountryBuilder, setIsCountryBuilder] = useState(false);
+  const [showStylePicker, setShowStylePicker] = useState(false);
+  const [roadHighlight, setRoadHighlight] = useState(false);
+  const [roadColor, setRoadColor] = useState('#ef4444');
+  const [showRoadColors, setShowRoadColors] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -32,12 +91,14 @@ export default function App() {
   const currentLatLngRef = useRef(currentLatLng);
   const modeRef = useRef(currentMode);
   const isRoutingRef = useRef(isRouting);
+  const isCountryBuilderRef = useRef(isCountryBuilder);
   const lastDestRef = useRef<{ lat: number, lng: number, name: string } | null>(null);
   const searchDebounce = useRef<any>(null);
 
   useEffect(() => { currentLatLngRef.current = currentLatLng; }, [currentLatLng]);
   useEffect(() => { modeRef.current = currentMode; }, [currentMode]);
   useEffect(() => { isRoutingRef.current = isRouting; }, [isRouting]);
+  useEffect(() => { isCountryBuilderRef.current = isCountryBuilder; }, [isCountryBuilder]);
 
   useEffect(() => {
     if (!mapContainer.current || mapInstance.current) return;
@@ -45,12 +106,34 @@ export default function App() {
     mapInstance.current = L.map(mapContainer.current, { zoomControl: false }).setView([20, 0], 2);
     L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
 
-    tileLayerRef.current = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap'
+    const cfg = TILE_CONFIGS[isDark ? 'dark' : 'light'];
+    tileLayerRef.current = L.tileLayer(cfg.url, {
+      maxZoom: cfg.maxZoom,
+      attribution: cfg.attr,
     }).addTo(mapInstance.current);
 
     if (isDark) document.documentElement.setAttribute('data-theme', 'dark');
+
+    // Apply initial map style if not light/dark
+    const initStyle = localStorage.getItem('mappy-style') as MapStyle;
+    if (initStyle && initStyle !== 'light' && initStyle !== 'dark') {
+      const initCfg = TILE_CONFIGS[initStyle];
+      if (initCfg) {
+        mapInstance.current.removeLayer(tileLayerRef.current);
+        tileLayerRef.current = L.tileLayer(initCfg.url, {
+          maxZoom: initCfg.maxZoom,
+          attribution: initCfg.attr,
+        }).addTo(mapInstance.current);
+        // Add labels overlay for satellite/nightlights
+        if (initStyle === 'satellite' || initStyle === 'nightlights') {
+          labelsLayerRef.current = L.tileLayer(LABELS_DARK_URL, {
+            maxZoom: 19,
+            attribution: '',
+            pane: 'overlayPane',
+          }).addTo(mapInstance.current);
+        }
+      }
+    }
 
     const geoId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -89,6 +172,7 @@ export default function App() {
   useEffect(() => {
     if (!mapInstance.current) return;
     const onClick = (e: any) => {
+      if (isCountryBuilderRef.current) return; // Suppress route clicks in country builder mode
       setSuggestions([]);
       const start = currentLatLngRef.current;
       if (!start) { alert('Waiting for your location…'); return; }
@@ -220,14 +304,63 @@ export default function App() {
     }
   };
 
-  const handleToggleDark = () => {
-    const nextDark = !isDark;
-    setIsDark(nextDark);
-    localStorage.setItem('mappy-dark', String(nextDark));
-    document.documentElement.setAttribute('data-theme', nextDark ? 'dark' : '');
-    if (tileLayerRef.current) {
-      mapInstance.current.removeLayer(tileLayerRef.current);
-      tileLayerRef.current = L.tileLayer(nextDark ? TILE_DARK : TILE_LIGHT, { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(mapInstance.current);
+  const handleStyleChange = (style: MapStyle) => {
+    setMapStyle(style);
+    setShowStylePicker(false);
+    localStorage.setItem('mappy-style', style);
+    const isDarkStyle = style === 'dark' || style === 'nightlights';
+    document.documentElement.setAttribute('data-theme', isDarkStyle ? 'dark' : '');
+
+    // Remove old base tile
+    if (tileLayerRef.current) mapInstance.current.removeLayer(tileLayerRef.current);
+    // Remove old labels overlay
+    if (labelsLayerRef.current) { mapInstance.current.removeLayer(labelsLayerRef.current); labelsLayerRef.current = null; }
+
+    const cfg = TILE_CONFIGS[style];
+    tileLayerRef.current = L.tileLayer(cfg.url, { maxZoom: cfg.maxZoom, attribution: cfg.attr }).addTo(mapInstance.current);
+
+    // Add English labels overlay for satellite & nightlights
+    if (style === 'satellite' || style === 'nightlights') {
+      labelsLayerRef.current = L.tileLayer(LABELS_DARK_URL, {
+        maxZoom: 19,
+        attribution: '',
+        pane: 'overlayPane',
+      }).addTo(mapInstance.current);
+    }
+
+    // Re-add road overlay on top if active
+    if (roadHighlight && roadOverlayRef.current) {
+      roadOverlayRef.current.bringToFront();
+    }
+  };
+
+  const toggleRoadHighlight = () => {
+    const map = mapInstance.current;
+    if (!map) return;
+    if (roadHighlight) {
+      // Remove
+      if (roadOverlayRef.current) { map.removeLayer(roadOverlayRef.current); roadOverlayRef.current = null; }
+      setRoadHighlight(false);
+      setShowRoadColors(false);
+    } else {
+      // Add road overlay with color tint via CSS filter
+      roadOverlayRef.current = L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png',
+        { maxZoom: 19, attribution: '', pane: 'overlayPane', className: 'road-highlight-layer' }
+      ).addTo(map);
+      applyRoadColor(roadColor);
+      setRoadHighlight(true);
+    }
+  };
+
+  const applyRoadColor = (color: string) => {
+    setRoadColor(color);
+    // Apply CSS filter to the road overlay tiles
+    const container = roadOverlayRef.current?._container;
+    if (container) {
+      container.style.filter = `drop-shadow(0 0 2px ${color}) drop-shadow(0 0 4px ${color})`;
+      container.style.mixBlendMode = 'screen';
+      container.style.opacity = '0.85';
     }
   };
 
@@ -294,18 +427,48 @@ export default function App() {
 
       {/* TOP RIGHT CONTROLS */}
       <div className="top-right-controls">
-        <button className="icon-btn glass" onClick={handleToggleDark} title="Toggle dark mode">
-          {!isDark ? (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+        {/* Map Style Picker */}
+        <div className="style-picker-wrapper">
+          <button className="icon-btn glass" onClick={() => { setShowStylePicker(v => !v); setShowRoadColors(false); }} title="Map Style">
+            <span className="style-icon-emoji">{MAP_STYLE_ICONS[mapStyle]}</span>
+          </button>
+          {showStylePicker && (
+            <div className="style-picker-dropdown glass">
+              {MAP_STYLE_ORDER.map(s => (
+                <button key={s} className={`style-option ${mapStyle === s ? 'active' : ''}`} onClick={() => handleStyleChange(s)}>
+                  <span className="style-opt-icon">{MAP_STYLE_ICONS[s]}</span>
+                  <span className="style-opt-label">{MAP_STYLE_LABELS[s]}</span>
+                </button>
+              ))}
+            </div>
           )}
-        </button>
+        </div>
+
+        {/* Road Highlight */}
+        <div className="style-picker-wrapper">
+          <button className={`icon-btn glass ${roadHighlight ? 'road-active-toggle' : ''}`} onClick={() => { toggleRoadHighlight(); setShowRoadColors(!roadHighlight); setShowStylePicker(false); }} title="Road Highlight">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19L20 5" /><path d="M4 5l16 14" /><line x1="12" y1="3" x2="12" y2="21" /></svg>
+          </button>
+          {showRoadColors && roadHighlight && (
+            <div className="road-color-dropdown glass">
+              <div className="road-color-label">Road Color</div>
+              <div className="road-color-grid">
+                {ROAD_COLORS.map(c => (
+                  <button key={c} className={`road-color-swatch ${roadColor === c ? 'active' : ''}`} style={{ background: c }} onClick={() => applyRoadColor(c)} title={c} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <button className="icon-btn glass" onClick={handleLocateMe} title="Go to my location">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M12 2v4m0 12v4M2 12h4m12 0h4" /></svg>
         </button>
         <button className="icon-btn glass" onClick={handleClearRoute} title="Clear route">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+        </button>
+        <button className={`icon-btn glass ${isCountryBuilder ? 'cb-active-toggle' : ''}`} onClick={() => setIsCountryBuilder(v => !v)} title="Build your own country">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
         </button>
       </div>
 
@@ -343,6 +506,14 @@ export default function App() {
           </>
         )}
       </div>
+
+      {/* COUNTRY BUILDER MODE */}
+      <CountryBuilder
+        mapInstance={mapInstance}
+        isActive={isCountryBuilder}
+        onToggle={() => setIsCountryBuilder(false)}
+        isDark={isDark}
+      />
     </>
   );
 }
