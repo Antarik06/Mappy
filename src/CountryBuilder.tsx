@@ -76,7 +76,7 @@ function createCountry(color: string): CustomCountry {
   return { id: `country-${nextId++}`, name: '', color, isos: new Set() };
 }
 
-export default function CountryBuilder({ mapInstance, isActive, onToggle, isDark }: CountryBuilderProps) {
+export default function CountryBuilder({ mapInstance, isActive, onToggle, isDark: _isDark }: CountryBuilderProps) {
   const [geoData, setGeoData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [countries, setCountries] = useState<CustomCountry[]>([]);
