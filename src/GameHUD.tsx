@@ -7,6 +7,7 @@ import {
 import { GameEngine } from './GameEngine';
 
 const L = (window as any).L;
+const turf = (window as any).turf;
 
 interface GameHUDProps {
   mapInstance: React.MutableRefObject<any>;
@@ -138,11 +139,7 @@ export default function GameHUD({ mapInstance, gameState, engine, geoData }: Gam
         filter: (feature: any) => {
           const iso = getISO(feature);
           return iso !== 'UNK' && iso !== 'ATA';
-        },
-        onEachFeature: (feature: any, layer: any) => {
-         // No mousedown on layer anymore, so users can pan the map freely by dragging the landmass.
-        // Selecting a country is done via map.on('click') below.
-        },
+        }
       }).addTo(map);
     }
 
